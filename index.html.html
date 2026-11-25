@@ -1,0 +1,404 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Procurement Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+  /* Layout: sticky top bar with tabs, one working surface below, modal for editing.
+     Palette: slate neutrals, one blue accent, semantic good/warn/bad kept separate. */
+  :root {
+    --bg: #f4f6f8; --surface: #ffffff; --ink: #17212b; --muted: #5a6877; --line: #dde2e8;
+    --accent: #0b5cad; --accent-ink: #ffffff; --tint: #e8f0f9;
+    --good: #12775a; --warn: #9a5a06; --bad: #b3261e;
+    --font-head: "Space Grotesk", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11161c; --surface: #19202a; --ink: #e6ebf0; --muted: #98a5b2; --line: #2b3541;
+      --accent: #5aa2e6; --accent-ink: #0a1a2b; --tint: #1c2937;
+      --good: #4cc6a0; --warn: #e0a24a; --bad: #f08a82; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11161c; --surface: #19202a; --ink: #e6ebf0; --muted: #98a5b2; --line: #2b3541;
+    --accent: #5aa2e6; --accent-ink: #0a1a2b; --tint: #1c2937;
+    --good: #4cc6a0; --warn: #e0a24a; --bad: #f08a82; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-body); margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-block: 0 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 14px 10px; }
+  h1 { font: 600 20px/1.2 var(--font-head); margin: 0; letter-spacing: -0.01em; }
+  .chip { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.ok { color: var(--good); border-color: var(--good); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  nav { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--muted); font: 500 14px var(--font-body); cursor: pointer; margin-bottom: -1px; }
+  nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h2 { font: 600 16px/1.3 var(--font-head); margin: 0; }
+  h3 { font: 600 13px/1.3 var(--font-head); margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; min-width: 0; }
+  .head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .btn { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; font: 500 14px var(--font-body); cursor: pointer; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.danger { color: var(--bad); border-color: var(--bad); }
+  .btn.small { padding: 3px 8px; font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  tbody tr.click { cursor: pointer; }
+  tbody tr.click:hover { background: var(--tint); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .tile b { display: block; font: 600 24px/1.1 var(--font-head); }
+  .tile span { color: var(--muted); font-size: 12px; }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--tint); }
+  .late { color: var(--bad); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .empty { padding: 20px 4px; color: var(--muted); }
+  .overlay { position: fixed; inset: 0; background: rgba(8, 12, 18, 0.5); overflow: auto; z-index: 20;
+    padding: 24px max(12px, env(safe-area-inset-right, 0px)) 24px max(12px, env(safe-area-inset-left, 0px)); }
+  .modal { background: var(--surface); border-radius: 10px; max-width: 640px; margin: 0 auto; padding: 18px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  input, select, textarea { width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; min-width: 0; }
+  .rowline { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .rowline.cost { grid-template-columns: 2fr 1fr auto; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; margin-top: 16px; }
+  .toast { color: var(--bad); margin-top: 8px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0 6px; }
+  @media (max-width: 520px) { .rowline { grid-template-columns: 1fr 1fr; } .rowline.cost { grid-template-columns: 1fr 1fr; } }
+  @media (prefers-reduced-motion: no-preference) { .overlay { animation: fade .12s ease-out; } @keyframes fade { from { opacity: 0; } } }
+  .login { max-width: 460px; margin: 10vh auto; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: center; }
+  .login p { color: var(--muted); }
+  .login button { margin-top: 12px; }
+  #apparea[hidden], #login[hidden] { display: none !important; }
+</style>
+
+<div id="login" class="login">
+  <h1>Procurement Desk</h1>
+  <p>Sign in with your verified Meghna company Google account to continue.</p>
+  <button id="googleSignIn" class="btn primary" type="button">Continue with Google</button>
+  <p id="loginMessage" role="alert" aria-live="polite"></p>
+</div>
+<div id="apparea" hidden>
+<div class="wrap">
+  <div class="bar"><h1>Procurement Desk</h1><span id="mode" class="chip">Connecting</span></div>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<div id="modalhost"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+const KEYS = ['suppliers', 'items', 'pos', 'shipments'];
+const state = { suppliers: [], items: [], pos: [], shipments: [] };
+const PO_STATUS = ['Draft', 'Approved', 'Confirmed', 'In production', 'Shipped', 'Closed', 'Cancelled'];
+const OPEN_PO = ['Draft', 'Approved', 'Confirmed', 'In production', 'Shipped'];
+const SHIP_STATUS = ['Booked', 'In transit', 'At customs', 'Cleared', 'Delivered', 'Received'];
+const DONE_SHIP = ['Delivered', 'Received'];
+const MODES = ['Sea', 'Air', 'Road', 'Rail'];
+const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DDP'];
+const COST_TYPES = ['Freight', 'Insurance', 'Duty', 'Taxes', 'Clearing fees', 'Inland transport', 'Other'];
+const TABS = [['dashboard', 'Dashboard'], ['pos', 'Purchase orders'], ['shipments', 'Shipments'], ['suppliers', 'Suppliers'], ['items', 'Items']];
+const PREFIX = { suppliers: 'SUP', items: 'ITM', pos: 'PO', shipments: 'SHP' };
+
+let db = null, mode = 'loading', view = 'dashboard', gotSnap = {}, loadTimer = null, current = null;
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const num = v => (v === '' || v == null || isNaN(Number(v))) ? 0 : Number(v);
+const money = n => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const today = () => new Date().toISOString().slice(0, 10);
+const by = (k, id) => state[k].find(x => x.id === id);
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ---------- Firebase configuration and shared storage ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyDkjojQNkgFCU339bi9zOp9E8hthxPK2Ag",
+  authDomain: "scm-erp-7feb4.firebaseapp.com",
+  projectId: "scm-erp-7feb4",
+  storageBucket: "scm-erp-7feb4.firebasestorage.app",
+  messagingSenderId: "935269840522",
+  appId: "1:935269840522:web:75bfd4da4d11fe0e541f73",
+  measurementId: "G-LBV2342WGH"
+};
+
+const firebaseApp = firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const googleProvider = new firebase.auth.GoogleAuthProvider();
+db = firebase.firestore();
+
+function showLogin(message) {
+  $('#apparea').hidden = true;
+  $('#login').hidden = false;
+  $('#loginMessage').textContent = message || '';
+}
+function showApp() {
+  $('#login').hidden = true;
+  $('#apparea').hidden = false;
+}
+$('#googleSignIn').addEventListener('click', async () => {
+  $('#googleSignIn').disabled = true;
+  $('#loginMessage').textContent = 'Opening Google sign-in…';
+  try { await auth.signInWithPopup(googleProvider); }
+  catch (e) {
+    $('#loginMessage').textContent = e.code === 'auth/popup-blocked'
+      ? 'Popup blocked. Allow popups for this site and try again.'
+      : 'Sign-in failed: ' + (e.message || e.code);
+  } finally { $('#googleSignIn').disabled = false; }
+});
+
+function initStore() {
+  mode = 'shared';
+  loadTimer = setTimeout(() => { if (!allLoaded()) { mode = 'slow'; render(); } }, 10000);
+  KEYS.forEach(k => {
+    db.collection(k).onSnapshot(snap => {
+      state[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      gotSnap[k] = true;
+      if (allLoaded()) { clearTimeout(loadTimer); if (mode === 'slow') mode = 'shared'; }
+      if (!$('#modalhost').firstChild) render(); else renderBar();
+    }, e => { console.error('Firestore read failed:', e); mode = 'error'; render(); });
+  });
+  render();
+}
+const allLoaded = () => KEYS.every(k => gotSnap[k]);
+
+async function put(k, rec) {
+  if (!auth.currentUser) throw new Error('Please sign in first.');
+  await db.collection(k).doc(rec.id).set(rec);
+}
+async function drop(k, id) {
+  if (!auth.currentUser) throw new Error('Please sign in first.');
+  await db.collection(k).doc(id).delete();
+}
+
+auth.onAuthStateChanged(async user => {
+  if (!user) { showLogin('Please sign in with your Meghna Google account.'); return; }
+  const email = (user.email || '').toLowerCase();
+  if (!user.emailVerified || !email.endsWith('@meghna.com.bd')) {
+    showLogin('Access denied. Use a verified @meghna.com.bd Google account.');
+    try { await auth.signOut(); } catch (_) {}
+    return;
+  }
+  showApp();
+  initStore();
+});
+function nextId(k) {
+  let max = 0;
+  state[k].forEach(r => { const m = String(r.id).match(/(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  return PREFIX[k] + '-' + String(max + 1).padStart(4, '0');
+}
+
+/* ---------- calculations ---------- */
+function poGoods(po) { return (po.lines || []).reduce((s, l) => s + num(l.qty) * num(l.price), 0); }
+function landed(s) {
+  const po = by('pos', s.poId);
+  if (!po) return null;
+  const rate = num(po.rate) || 1;
+  const goodsTotal = poGoods(po) * rate;
+  const costTotal = (s.costs || []).reduce((t, c) => t + num(c.amount), 0);
+  const lines = (po.lines || []).map(l => {
+    const goods = num(l.qty) * num(l.price) * rate;
+    const alloc = goodsTotal > 0 ? costTotal * goods / goodsTotal : 0;
+    const it = by('items', l.itemId);
+    return { name: it ? it.desc : (l.itemId || 'Item'), qty: num(l.qty), goods, alloc, total: goods + alloc,
+      quoted: num(l.price) * rate, perUnit: num(l.qty) > 0 ? (goods + alloc) / num(l.qty) : 0 };
+  });
+  return { lines, goodsTotal, costTotal };
+}
+
+/* ---------- rendering ---------- */
+function renderBar() {
+  const m = $('#mode');
+  const map = {
+    loading: ['Connecting', ''], shared: ['Shared with your team', 'ok'], local: ['Saved in this browser only', 'warn'],
+    slow: ['Shared data is slow to load', 'warn'], error: ['Shared data unavailable', 'warn']
+  };
+  const [t, c] = map[mode] || map.loading;
+  m.textContent = t; m.className = 'chip ' + c;
+}
+function render() {
+  renderBar();
+  $('#nav').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t[0]}" ${view === t[0] ? 'aria-current="page"' : ''}>${t[1]}</button>`).join('');
+  const f = { dashboard, pos: tablePOs, shipments: tableShips, suppliers: tableSuppliers, items: tableItems }[view];
+  $('#main').innerHTML = f();
+}
+function sel(name, opts, val, blank) {
+  return `<select name="${name}">${blank ? '<option value=""></option>' : ''}${opts.map(o => {
+    const v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o;
+    return `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(l)}</option>`;
+  }).join('')}</select>`;
+}
+function dashboard() {
+  const total = KEYS.reduce((s, k) => s + state[k].length, 0);
+  if (!total) return `<div class="panel"><h2>Start with your first supplier</h2>
+    <p class="empty">Nothing here yet. Add suppliers and items, raise a purchase order, then book its shipment. Or load a few clearly marked example records to see how the pieces fit.</p>
+    <button class="btn primary" data-act="seed">Load example data</button></div>`;
+  const counts = {}; state.pos.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+  const t = today();
+  const open = state.shipments.filter(s => !DONE_SHIP.includes(s.status)).sort((a, b) => String(a.eta).localeCompare(String(b.eta)));
+  const latePos = state.pos.filter(p => OPEN_PO.includes(p.status) && p.shipBy && p.shipBy < t);
+  return `<div class="panel"><h3>Purchase orders by status</h3><div class="tiles">${PO_STATUS.map(s => `<div class="tile"><b>${counts[s] || 0}</b><span>${s}</span></div>`).join('')}</div></div>
+  <div class="panel"><h3>Shipments on the way</h3>${open.length ? `<div class="scroll"><table><thead><tr><th>Shipment</th><th>PO</th><th>Mode</th><th>Status</th><th>ETA</th></tr></thead><tbody>
+    ${open.map(s => { const lt = s.eta && s.eta < t; return `<tr class="click" data-act="edit" data-k="shipments" data-id="${esc(s.id)}"><td>${esc(s.id)}</td><td>${esc(s.poId)}</td><td>${esc(s.mode)}</td><td><span class="pill">${esc(s.status)}</span></td><td class="${lt ? 'late' : ''}">${esc(s.eta)}${lt ? ' (late)' : ''}</td></tr>`; }).join('')}
+    </tbody></table></div>` : '<p class="empty">No shipments on the way.</p>'}</div>
+  <div class="panel"><h3>POs past their ship-by date</h3>${latePos.length ? `<div class="scroll"><table><thead><tr><th>PO</th><th>Supplier</th><th>Ship by</th><th>Status</th></tr></thead><tbody>
+    ${latePos.map(p => { const s = by('suppliers', p.supplierId); return `<tr class="click" data-act="edit" data-k="pos" data-id="${esc(p.id)}"><td>${esc(p.id)}</td><td>${esc(s ? s.name : p.supplierId)}</td><td class="late">${esc(p.shipBy)}</td><td><span class="pill">${esc(p.status)}</span></td></tr>`; }).join('')}
+    </tbody></table></div>` : '<p class="empty">Nothing overdue.</p>'}</div>`;
+}
+function wrapTable(title, k, head, rows, addLabel) {
+  return `<div class="panel"><div class="head"><h2>${title}</h2><button class="btn primary" data-act="add" data-k="${k}">${addLabel}</button></div>
+  ${rows.length ? `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="empty">No records yet.</p>'}</div>`;
+}
+const row = (k, r, cells) => `<tr class="click" data-act="edit" data-k="${k}" data-id="${esc(r.id)}">${cells.join('')}</tr>`;
+const td = v => `<td>${esc(v)}</td>`;
+function tableSuppliers() {
+  return wrapTable('Suppliers', 'suppliers', '<th>ID</th><th>Name</th><th>Country</th><th>Currency</th><th>Payment terms</th><th>Contact</th>',
+    state.suppliers.map(r => row('suppliers', r, [td(r.id), td(r.name), td(r.country), td(r.currency), td(r.terms), td(r.contact)])), 'Add supplier');
+}
+function tableItems() {
+  return wrapTable('Items', 'items', '<th>ID</th><th>Description</th><th>Unit</th><th>HS code</th>',
+    state.items.map(r => row('items', r, [td(r.id), td(r.desc), td(r.unit), td(r.hs)])), 'Add item');
+}
+function tablePOs() {
+  return wrapTable('Purchase orders', 'pos', '<th>PO</th><th>Date</th><th>Supplier</th><th>Incoterm</th><th>Status</th><th class="num">Goods value</th><th>Ship by</th>',
+    state.pos.map(r => { const s = by('suppliers', r.supplierId); return row('pos', r, [td(r.id), td(r.date), td(s ? s.name : r.supplierId), td(r.incoterm), `<td><span class="pill">${esc(r.status)}</span></td>`, `<td class="num">${esc(r.currency)} ${money(poGoods(r))}</td>`, td(r.shipBy)]); }), 'New PO');
+}
+function tableShips() {
+  return wrapTable('Shipments', 'shipments', '<th>Shipment</th><th>PO</th><th>Mode</th><th>Forwarder</th><th>B/L or AWB</th><th>ETA</th><th>Status</th><th class="num">Landed total</th>',
+    state.shipments.map(r => { const l = landed(r); return row('shipments', r, [td(r.id), td(r.poId), td(r.mode), td(r.forwarder), td(r.bl), td(r.eta), `<td><span class="pill">${esc(r.status)}</span></td>`, `<td class="num">${l ? money(l.goodsTotal + l.costTotal) : ''}</td>`]); }), 'New shipment');
+}
+
+/* ---------- forms ---------- */
+const F = (label, name, val, type) => `<div><label>${label}</label><input name="${name}" type="${type || 'text'}" ${type === 'number' ? 'step="any"' : ''} value="${esc(val)}"></div>`;
+function lineRow(l) {
+  const items = state.items.map(i => [i.id, i.id + ' · ' + i.desc]);
+  return `<div class="rowline">${sel('l_item', items, l.itemId, true)}<input name="l_qty" type="number" step="any" placeholder="Qty" value="${esc(l.qty)}"><input name="l_price" type="number" step="any" placeholder="Unit price" value="${esc(l.price)}"><button type="button" class="btn small" data-act="rmrow">Remove</button></div>`;
+}
+function costRow(c) {
+  return `<div class="rowline cost">${sel('c_type', COST_TYPES, c.type, false)}<input name="c_amt" type="number" step="any" placeholder="Amount (base currency)" value="${esc(c.amount)}"><button type="button" class="btn small" data-act="rmrow">Remove</button></div>`;
+}
+function formFor(k, r) {
+  if (k === 'suppliers') return `<div class="grid2">${F('Name', 'name', r.name)}${F('Country', 'country', r.country)}${F('Currency', 'currency', r.currency)}${F('Payment terms', 'terms', r.terms)}</div>${F('Contact', 'contact', r.contact)}`;
+  if (k === 'items') return `<div class="grid2">${F('Description', 'desc', r.desc)}${F('Unit', 'unit', r.unit)}${F('HS code', 'hs', r.hs)}</div>`;
+  if (k === 'pos') {
+    const sup = state.suppliers.map(s => [s.id, s.id + ' · ' + s.name]);
+    return `<div class="grid2"><div><label>Supplier</label>${sel('supplierId', sup, r.supplierId, true)}</div>${F('Order date', 'date', r.date || today(), 'date')}
+      <div><label>Incoterm</label>${sel('incoterm', INCOTERMS, r.incoterm, true)}</div><div><label>Status</label>${sel('status', PO_STATUS, r.status || 'Draft')}</div>
+      ${F('Currency', 'currency', r.currency)}${F('Rate (base currency per 1 unit)', 'rate', r.rate == null ? 1 : r.rate, 'number')}${F('Ship by', 'shipBy', r.shipBy, 'date')}</div>
+      <hr><h3>Lines</h3><div id="lines">${(r.lines || []).map(lineRow).join('')}</div><button type="button" class="btn small" data-act="addline">Add line</button>
+      ${!state.suppliers.length || !state.items.length ? '<p class="muted">Add at least one supplier and one item first so they can be picked here.</p>' : ''}`;
+  }
+  if (k === 'shipments') {
+    const pos = state.pos.map(p => [p.id, p.id]);
+    const rc = r.receipt || {};
+    const l = r.poId ? landed(r) : null;
+    return `<div class="grid2"><div><label>Purchase order</label>${sel('poId', pos, r.poId, true)}</div><div><label>Mode</label>${sel('mode', MODES, r.mode, true)}</div>
+      ${F('Forwarder', 'forwarder', r.forwarder)}${F('B/L or AWB number', 'bl', r.bl)}${F('ETD', 'etd', r.etd, 'date')}${F('ETA', 'eta', r.eta, 'date')}
+      <div><label>Status</label>${sel('status', SHIP_STATUS, r.status || 'Booked')}</div></div>
+      <hr><h3>Costs on this shipment (base currency)</h3><div id="costs">${(r.costs || []).map(costRow).join('')}</div><button type="button" class="btn small" data-act="addcost">Add cost</button>
+      <hr><h3>Goods receipt at the factory</h3><div class="grid2">${F('Date received', 'rDate', rc.date, 'date')}${F('Received by', 'rBy', rc.by)}${F('Quantity received', 'rQty', rc.qty, 'number')}${F('Quantity rejected', 'rRej', rc.rejected, 'number')}</div>${F('Notes', 'rNote', rc.note)}
+      ${l && l.lines.length ? `<hr><h3>Landed cost per unit</h3><div class="scroll"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Quoted / unit</th><th class="num">Landed / unit</th></tr></thead><tbody>
+        ${l.lines.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${x.qty}</td><td class="num">${money(x.quoted)}</td><td class="num"><b>${money(x.perUnit)}</b></td></tr>`).join('')}</tbody></table></div>
+        <p class="muted">Goods ${money(l.goodsTotal)} + costs ${money(l.costTotal)}. Shared costs are split across lines by goods value.</p>` : ''}`;
+  }
+}
+const TITLES = { suppliers: 'supplier', items: 'item', pos: 'purchase order', shipments: 'shipment' };
+function openModal(k, id) {
+  const isNew = !id;
+  const rec = isNew ? { id: nextId(k) } : clone(by(k, id));
+  current = { k, id: rec.id, isNew };
+  $('#modalhost').innerHTML = `<div class="overlay" data-act="backdrop"><form class="modal" id="form" role="dialog" aria-label="Edit ${TITLES[k]}">
+    <div class="head"><h2>${isNew ? 'New' : 'Edit'} ${TITLES[k]} <span class="muted">${esc(rec.id)}</span></h2><button type="button" class="btn small" data-act="close">Close</button></div>
+    ${formFor(k, rec)}<div class="toast" id="toast" role="alert"></div>
+    <div class="actions"><div>${isNew ? '' : '<button type="button" class="btn danger" data-act="askdel">Delete</button><span id="delbox" hidden> Delete this record? <button type="button" class="btn danger small" data-act="del">Yes, delete</button> <button type="button" class="btn small" data-act="nodel">No</button></span>'}</div>
+    <button class="btn primary">Save</button></div></form></div>`;
+  const first = $('#form input, #form select'); if (first) first.focus();
+}
+function closeModal() { $('#modalhost').innerHTML = ''; current = null; render(); }
+function collect(k, base) {
+  const fd = new FormData($('#form'));
+  const g = n => fd.get(n) == null ? '' : String(fd.get(n)).trim();
+  const r = Object.assign({}, base);
+  if (k === 'suppliers') Object.assign(r, { name: g('name'), country: g('country'), currency: g('currency'), terms: g('terms'), contact: g('contact') });
+  if (k === 'items') Object.assign(r, { desc: g('desc'), unit: g('unit'), hs: g('hs') });
+  if (k === 'pos') {
+    Object.assign(r, { supplierId: g('supplierId'), date: g('date'), incoterm: g('incoterm'), status: g('status'), currency: g('currency'), rate: num(g('rate')) || 1, shipBy: g('shipBy') });
+    const it = fd.getAll('l_item'), q = fd.getAll('l_qty'), p = fd.getAll('l_price');
+    r.lines = it.map((x, i) => ({ itemId: x, qty: num(q[i]), price: num(p[i]) })).filter(l => l.itemId || l.qty || l.price);
+  }
+  if (k === 'shipments') {
+    Object.assign(r, { poId: g('poId'), mode: g('mode'), forwarder: g('forwarder'), bl: g('bl'), etd: g('etd'), eta: g('eta'), status: g('status') });
+    const t = fd.getAll('c_type'), a = fd.getAll('c_amt');
+    r.costs = t.map((x, i) => ({ type: x, amount: num(a[i]) })).filter(c => c.amount);
+    const rc = { date: g('rDate'), by: g('rBy'), qty: g('rQty') === '' ? '' : num(g('rQty')), rejected: g('rRej') === '' ? '' : num(g('rRej')), note: g('rNote') };
+    r.receipt = rc;
+    if (rc.date && !DONE_SHIP.includes(r.status)) r.status = 'Received';
+  }
+  return r;
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === 'backdrop') { if (e.target === el) closeModal(); return; }
+  if (act === 'tab') { view = el.dataset.v; render(); }
+  else if (act === 'add') openModal(el.dataset.k, null);
+  else if (act === 'edit') openModal(el.dataset.k, el.dataset.id);
+  else if (act === 'close') closeModal();
+  else if (act === 'addline') $('#lines').insertAdjacentHTML('beforeend', lineRow({}));
+  else if (act === 'addcost') $('#costs').insertAdjacentHTML('beforeend', costRow({}));
+  else if (act === 'rmrow') el.closest('.rowline').remove();
+  else if (act === 'askdel') { $('#delbox').hidden = false; el.hidden = true; }
+  else if (act === 'nodel') { $('#delbox').hidden = true; document.querySelector('[data-act="askdel"]').hidden = false; }
+  else if (act === 'del') {
+    try { await drop(current.k, current.id); closeModal(); } catch (err) { $('#toast').textContent = 'Could not delete. You may only have view access to this page.'; }
+  }
+  else if (act === 'seed') {
+    el.disabled = true;
+    try { await seed(); } catch (err) { el.disabled = false; }
+  }
+});
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!current) return;
+  const base = current.isNew ? { id: current.id } : clone(by(current.k, current.id));
+  const rec = collect(current.k, base);
+  if (current.k === 'suppliers' && !rec.name) { $('#toast').textContent = 'Enter a supplier name.'; return; }
+  if (current.k === 'items' && !rec.desc) { $('#toast').textContent = 'Enter an item description.'; return; }
+  if (current.k === 'pos' && !rec.supplierId) { $('#toast').textContent = 'Choose a supplier.'; return; }
+  if (current.k === 'shipments' && !rec.poId) { $('#toast').textContent = 'Choose the purchase order this shipment carries.'; return; }
+  try { await put(current.k, rec); closeModal(); }
+  catch (err) { $('#toast').textContent = 'Could not save. You may only have view access to this page, or the shared data is unreachable.'; }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && current) closeModal(); });
+
+async function seed() {
+  const d = new Date(), plus = n => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const rows = [
+    ['suppliers', { id: 'SUP-0001', name: 'Example: Harbor Textile Co.', country: 'Vietnam', currency: 'USD', terms: '30% advance, 70% against B/L copy', contact: 'sales@example.invalid' }],
+    ['items', { id: 'ITM-0001', desc: 'Example: Cotton twill fabric', unit: 'metre', hs: '5209.42' }],
+    ['items', { id: 'ITM-0002', desc: 'Example: Metal zipper, 18 cm', unit: 'piece', hs: '9607.19' }],
+    ['pos', { id: 'PO-0001', date: plus(-30), supplierId: 'SUP-0001', incoterm: 'FOB', status: 'Shipped', currency: 'USD', rate: 110, shipBy: plus(-5),
+      lines: [{ itemId: 'ITM-0001', qty: 5000, price: 3.2 }, { itemId: 'ITM-0002', qty: 20000, price: 0.18 }] }],
+    ['shipments', { id: 'SHP-0001', poId: 'PO-0001', mode: 'Sea', forwarder: 'Example Freight Ltd', bl: 'EX-BL-0001', etd: plus(-4), eta: plus(18), status: 'In transit',
+      costs: [{ type: 'Freight', amount: 92000 }, { type: 'Insurance', amount: 8000 }, { type: 'Duty', amount: 210000 }], receipt: {} }]
+  ];
+  for (const [k, r] of rows) await put(k, r);
+  if (mode === 'local') render();
+}
+
+renderBar();
+</script>
+
+</body></html>
