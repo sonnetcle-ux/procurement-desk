@@ -81,7 +81,7 @@
 
 <div id="login" class="login">
   <h1>Procurement Desk</h1>
-  <p>Sign in with your verified Meghna company Google account to continue.</p>
+  <p>Sign in with an approved Google account to continue.</p>
   <button id="googleSignIn" class="btn primary" type="button">Continue with Google</button>
   <p id="loginMessage" role="alert" aria-live="polite"></p>
 </div>
@@ -180,14 +180,33 @@ async function drop(k, id) {
   await db.collection(k).doc(id).delete();
 }
 
+const ADMIN_EMAILS = [
+  'sonnet.cle@gmail.com'
+];
+
+const TEAM_EMAILS = [
+  'miraz@meghna.com.bd'
+];
+
+const ALLOWED_EMAILS = [
+  ...ADMIN_EMAILS,
+  ...TEAM_EMAILS
+];
+
 auth.onAuthStateChanged(async user => {
-  if (!user) { showLogin('Please sign in with your Meghna Google account.'); return; }
+  if (!user) {
+    showLogin('Please sign in with an approved Google account.');
+    return;
+  }
+
   const email = (user.email || '').toLowerCase();
-  if (!user.emailVerified || !email.endsWith('@meghna.com.bd')) {
-    showLogin('Access denied. Use a verified @meghna.com.bd Google account.');
+
+  if (!user.emailVerified || !ALLOWED_EMAILS.includes(email)) {
+    showLogin('Access denied. Your Google account is not approved.');
     try { await auth.signOut(); } catch (_) {}
     return;
   }
+
   showApp();
   initStore();
 });
