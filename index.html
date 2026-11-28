@@ -97,6 +97,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 const KEYS = ['suppliers', 'items', 'pos', 'shipments'];
 const state = { suppliers: [], items: [], pos: [], shipments: [] };
@@ -107,10 +108,11 @@ const DONE_SHIP = ['Delivered', 'Received'];
 const MODES = ['Sea', 'Air', 'Road', 'Rail'];
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DDP'];
 const COST_TYPES = ['Freight', 'Insurance', 'Duty', 'Taxes', 'Clearing fees', 'Inland transport', 'Other'];
-const TABS = [['dashboard', 'Dashboard'], ['pos', 'Purchase orders'], ['shipments', 'Shipments'], ['suppliers', 'Suppliers'], ['items', 'Items']];
+const TABS = [['dashboard', 'Dashboard'], ['pos', 'Purchase orders'], ['shipments', 'Shipments'], ['suppliers', 'Suppliers'], ['items', 'Items'], ['import', 'Excel import']];
 const PREFIX = { suppliers: 'SUP', items: 'ITM', pos: 'PO', shipments: 'SHP' };
 
 let db = null, mode = 'loading', view = 'dashboard', gotSnap = {}, loadTimer = null, current = null;
+let pendingImport = null, importMessage = '';
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -247,7 +249,7 @@ function renderBar() {
 function render() {
   renderBar();
   $('#nav').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t[0]}" ${view === t[0] ? 'aria-current="page"' : ''}>${t[1]}</button>`).join('');
-  const f = { dashboard, pos: tablePOs, shipments: tableShips, suppliers: tableSuppliers, items: tableItems }[view];
+  const f = { dashboard, pos: tablePOs, shipments: tableShips, suppliers: tableSuppliers, items: tableItems, import: importPage }[view];
   $('#main').innerHTML = f();
 }
 function sel(name, opts, val, blank) {
@@ -288,12 +290,226 @@ function tableItems() {
     state.items.map(r => row('items', r, [td(r.id), td(r.desc), td(r.unit), td(r.hs)])), 'Add item');
 }
 function tablePOs() {
-  return wrapTable('Purchase orders', 'pos', '<th>PO</th><th>Date</th><th>Supplier</th><th>Incoterm</th><th>Status</th><th class="num">Goods value</th><th>Ship by</th>',
-    state.pos.map(r => { const s = by('suppliers', r.supplierId); return row('pos', r, [td(r.id), td(r.date), td(s ? s.name : r.supplierId), td(r.incoterm), `<td><span class="pill">${esc(r.status)}</span></td>`, `<td class="num">${esc(r.currency)} ${money(poGoods(r))}</td>`, td(r.shipBy)]); }), 'New PO');
+  return wrapTable('Purchase orders', 'pos', '<th>Order Number</th><th>Date</th><th>Supplier</th><th>Incoterm</th><th>Status</th><th class="num">Goods value</th><th>Ship by</th>',
+    state.pos.map(r => { const s = by('suppliers', r.supplierId); return row('pos', r, [td(r.orderNumber || r.id), td(r.date), td(s ? s.name : r.supplierId), td(r.incoterm), `<td><span class="pill">${esc(r.status)}</span></td>`, `<td class="num">${esc(r.currency)} ${money(poGoods(r))}</td>`, td(r.shipBy)]); }), 'New PO');
 }
 function tableShips() {
   return wrapTable('Shipments', 'shipments', '<th>Shipment</th><th>PO</th><th>Mode</th><th>Forwarder</th><th>B/L or AWB</th><th>ETA</th><th>Status</th><th class="num">Landed total</th>',
     state.shipments.map(r => { const l = landed(r); return row('shipments', r, [td(r.id), td(r.poId), td(r.mode), td(r.forwarder), td(r.bl), td(r.eta), `<td><span class="pill">${esc(r.status)}</span></td>`, `<td class="num">${l ? money(l.goodsTotal + l.costTotal) : ''}</td>`]); }), 'New shipment');
+}
+
+
+/* ---------- Excel import: consolidated "data" worksheet, add-only ---------- */
+function importPage() {
+  const summary = pendingImport ? `
+    <div class="tiles">
+      <div class="tile"><b>${pendingImport.stats.total}</b><span>Excel rows</span></div>
+      <div class="tile"><b>${pendingImport.stats.valid}</b><span>Valid rows</span></div>
+      <div class="tile"><b>${pendingImport.stats.newRows}</b><span>New rows to import</span></div>
+      <div class="tile"><b>${pendingImport.stats.skipped}</b><span>Existing / duplicate rows skipped</span></div>
+      <div class="tile"><b>${pendingImport.stats.invalid}</b><span>Invalid rows</span></div>
+      <div class="tile"><b>${pendingImport.stats.priceMissing}</b><span>Rows without price (imported as 0)</span></div>
+      <div class="tile"><b>${pendingImport.stats.newSuppliers}</b><span>New suppliers</span></div>
+      <div class="tile"><b>${pendingImport.stats.newItems}</b><span>New items</span></div>
+      <div class="tile"><b>${pendingImport.stats.newPOs}</b><span>New purchase orders</span></div>
+      <div class="tile"><b>${pendingImport.stats.addedLines}</b><span>New lines on existing POs</span></div>
+      <div class="tile"><b>${pendingImport.stats.newShipments}</b><span>New shipments</span></div>
+    </div>
+    ${pendingImport.errors.length ? `<hr><h3>Rows needing review (first 20)</h3><div class="scroll"><table><thead><tr><th>Excel row</th><th>Reason</th></tr></thead><tbody>${pendingImport.errors.slice(0,20).map(x=>`<tr><td>${x.row}</td><td>${esc(x.reason)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    <p class="muted">Only the consolidated <b>data</b> worksheet is read. Existing records are not overwritten. New item lines may be appended to a matching existing PO.</p>
+    <div class="actions"><button class="btn" data-act="clearImport">Clear preview</button><button class="btn primary" data-act="commitImport" ${pendingImport.writes.length ? '' : 'disabled'}>Confirm and import ${pendingImport.writes.length} database records</button></div>
+  ` : `<p class="empty">Choose your existing Excel workbook. The importer will read only the worksheet named <b>data</b>.</p>`;
+  return `<div class="panel"><div class="head"><h2>Import foreign purchases from Excel</h2><span class="chip">Add-only import</span></div>
+    <p>Upload an .xlsx or .xls workbook containing the consolidated <b>data</b> worksheet. Factory-specific worksheets are ignored.</p>
+    <label for="excelFile">Excel workbook</label><input id="excelFile" type="file" accept=".xlsx,.xls,.xlsm">
+    <div class="actions"><button class="btn primary" data-act="previewImport">Validate and preview</button></div>
+    ${importMessage ? `<p class="toast">${esc(importMessage)}</p>` : ''}
+  </div>
+  ${pendingImport ? `<div class="panel"><div class="head"><h2>Import preview</h2><span class="chip ok">No changes saved yet</span></div>${summary}</div>` : ''}
+  <div class="panel"><h3>Import rules</h3><ul>
+    <li>Reads only the <b>data</b> worksheet.</li>
+    <li>Matches suppliers and items by their descriptive fields to avoid creating unnecessary duplicates.</li>
+    <li>Groups item rows under their Order Number.</li>
+    <li>Skips exact rows already imported and exact repeated rows within the workbook.</li>
+    <li>Creates a shipment when shipping information is available and no shipment exists for that PO.</li>
+    <li>Does not delete records or overwrite existing supplier/item records.</li>
+  </ul></div>`;
+}
+function norm(v) { return String(v == null ? '' : v).trim().toLowerCase().replace(/\s+/g, ' '); }
+function cleanText(v) { return String(v == null ? '' : v).trim(); }
+function dateText(v) {
+  if (v instanceof Date && !isNaN(v)) return v.getFullYear() + '-' + String(v.getMonth()+1).padStart(2,'0') + '-' + String(v.getDate()).padStart(2,'0');
+  if (typeof v === 'number' && window.XLSX && v > 20000 && v < 80000) {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+  }
+  const s = cleanText(v);
+  if (!s) return '';
+  const d = new Date(s);
+  return !isNaN(d) ? d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') : '';
+}
+function hashKey(s) {
+  let h = 2166136261;
+  for (let i=0; i<s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return 'XLS-' + (h >>> 0).toString(16);
+}
+function maxIdNumber(k) {
+  return state[k].reduce((m,r) => { const x = String(r.id || '').match(/(\d+)$/); return x ? Math.max(m, Number(x[1])) : m; }, 0);
+}
+function makeImportId(k, counters) {
+  counters[k] = (counters[k] || maxIdNumber(k)) + 1;
+  return PREFIX[k] + '-' + String(counters[k]).padStart(4,'0');
+}
+function getCell(obj, aliases) {
+  const keys = Object.keys(obj);
+  const wanted = aliases.map(x => norm(x).replace(/[^a-z0-9]/g,''));
+  const key = keys.find(k => wanted.includes(norm(k).replace(/[^a-z0-9]/g,'')));
+  return key == null ? '' : obj[key];
+}
+async function buildImportPreview(file) {
+  if (!window.XLSX) throw new Error('Excel reader could not load. Refresh the page and try again.');
+  const buf = await file.arrayBuffer();
+  const book = XLSX.read(buf, { type:'array', cellDates:true });
+  if (!book.SheetNames.includes('data')) throw new Error('This workbook does not contain a worksheet named "data".');
+  const raw = XLSX.utils.sheet_to_json(book.Sheets.data, { defval:'', raw:true });
+  const counters = {};
+  const existingKeys = new Set(state.pos.flatMap(p => p.sourceKeys || []));
+  const seenKeys = new Set();
+  const supplierByName = new Map(state.suppliers.map(s => [norm(s.name), s]));
+  const itemByKey = new Map(state.items.map(i => [norm([i.desc,i.unit,i.hs,i.model,i.color].join('|')), i]));
+  const newSuppliers = [], newItems = [], poMap = new Map(), errors = [];
+  let valid=0, skipped=0, invalid=0, addedLines=0, newRows=0, priceMissing=0;
+  const allRows = raw.map((r, idx) => ({ r, excelRow: idx+2 })).filter(x => Object.values(x.r).some(v => cleanText(v) !== ''));
+  for (const entry of allRows) {
+    const r = entry.r;
+    const vals = Object.keys(r).sort().map(k => [norm(k), r[k] instanceof Date ? dateText(r[k]) : cleanText(r[k])]);
+    const sourceKey = hashKey(JSON.stringify(vals));
+    if (seenKeys.has(sourceKey) || existingKeys.has(sourceKey)) { skipped++; continue; }
+    seenKeys.add(sourceKey);
+    const orderNumber = cleanText(getCell(r,['Order Number','Order No','PO Number']));
+    const supplierName = cleanText(getCell(r,['Supplier Name','Supplier']));
+    const itemName = cleanText(getCell(r,['Item Name','Item']));
+    const unit = cleanText(getCell(r,['UOM','Unit']));
+    const qtyRaw = getCell(r,['Order Quantity','Quantity','Qty']);
+    const priceRaw = getCell(r,['Unit Price','Price']);
+    const totalRaw = getCell(r,['Total PI Value','Total Value']);
+    const qty = Number(qtyRaw);
+    let price = priceRaw === '' || priceRaw == null ? 0 : Number(priceRaw);
+    if ((!Number.isFinite(price) || priceRaw === '' || priceRaw == null) && totalRaw !== '' && totalRaw != null && Number.isFinite(Number(totalRaw)) && qty > 0) price = Number(totalRaw) / qty;
+    const priceWasMissing = priceRaw === '' || priceRaw == null;
+    const reason = !orderNumber ? 'Missing Order Number' : !supplierName ? 'Missing Supplier Name' : !itemName ? 'Missing Item Name' : qtyRaw === '' || !Number.isFinite(qty) ? 'Missing or invalid Order Quantity' : !Number.isFinite(price) ? 'Invalid Unit Price' : '';
+    if (reason) { invalid++; errors.push({row:entry.excelRow,reason}); continue; }
+    if (priceWasMissing && (totalRaw === '' || totalRaw == null)) priceMissing++;
+    valid++;
+    let supplier = supplierByName.get(norm(supplierName));
+    if (!supplier) {
+      supplier = { id:makeImportId('suppliers',counters), name:supplierName, country:'', currency:cleanText(getCell(r,['Currency'])), terms:cleanText(getCell(r,['Payment Method'])), contact:'', sourceImport:'Foreign purchase.xlsx' };
+      supplierByName.set(norm(supplierName), supplier); newSuppliers.push(supplier);
+    }
+    const hs = cleanText(getCell(r,['HS code','HS Code']));
+    const model = cleanText(getCell(r,['Model']));
+    const color = cleanText(getCell(r,['Color']));
+    const itemKey = norm([itemName,unit,hs,model,color].join('|'));
+    let item = itemByKey.get(itemKey);
+    if (!item) {
+      item = { id:makeImportId('items',counters), desc:itemName, unit, hs, model, color, sourceImport:'Foreign purchase.xlsx' };
+      itemByKey.set(itemKey,item); newItems.push(item);
+    }
+    const line = { itemId:item.id, qty, price, priceWasMissing, sourceKey, piNumber:cleanText(getCell(r,['PI number','PI No'])), lcNumber:cleanText(getCell(r,['LC number','LC No'])), totalPIValue:totalRaw === '' ? '' : Number(totalRaw), sourceStatus:cleanText(getCell(r,['Status'])) };
+    let group = poMap.get(orderNumber);
+    if (!group) {
+      const existingPO = state.pos.find(p => norm(p.orderNumber) === norm(orderNumber));
+      group = { orderNumber, existingPO: existingPO ? clone(existingPO) : null, supplierId:supplier.id, lines:[], sourceKeys:[], rows:[], first:r };
+      poMap.set(orderNumber,group);
+    }
+    if (group.supplierId !== supplier.id) { invalid++; errors.push({row:entry.excelRow,reason:'Order Number is associated with more than one supplier'}); continue; }
+    const lineExists = (group.existingPO?.lines || []).concat(group.lines).some(l =>
+      l.itemId === line.itemId && num(l.qty) === qty && num(l.price) === price &&
+      cleanText(l.piNumber) === line.piNumber && cleanText(l.lcNumber) === line.lcNumber
+    );
+    if (lineExists) { skipped++; continue; }
+    group.lines.push(line); group.sourceKeys.push(sourceKey); group.rows.push(r);
+    if (group.existingPO) addedLines++; else newRows++;
+  }
+  const writes = [];
+  newSuppliers.forEach(r => writes.push({k:'suppliers',r}));
+  newItems.forEach(r => writes.push({k:'items',r}));
+  let newPOs = 0, newShipments = 0;
+  for (const g of poMap.values()) {
+    if (!g.lines.length) continue;
+    let po = g.existingPO;
+    if (!po) {
+      const first = g.first;
+      const sourceStatus = cleanText(getCell(first,['Status']));
+      const statusMap = { 'requested for quotation':'Draft', 'vendor selection':'Draft', 'waiting for approval':'Draft', 'purchase order issue':'Approved', 'pi acknowledge':'Confirmed', 'lc processing':'Confirmed', 'lc confirmed to supplier':'Confirmed', 'supplier in production':'In production', 'waiting for shipment':'In production', 'shipped':'Shipped', 'port clearing in progress':'Shipped', 'received':'Closed', 'cancelled':'Cancelled' };
+      po = { id:makeImportId('pos',counters), orderNumber:g.orderNumber, date:dateText(getCell(first,['Order Date'])), supplierId:g.supplierId,
+        incoterm:cleanText(getCell(first,['incoterms','Incoterms'])), status:statusMap[norm(sourceStatus)] || (PO_STATUS.includes(sourceStatus) ? sourceStatus : 'Draft'),
+        sourceStatus, purchaseFor:cleanText(getCell(first,['Purchase For'])), createdBy:cleanText(getCell(first,['Created By'])),
+        currency:cleanText(getCell(first,['Currency'])) || 'USD', rate:1, shipBy:dateText(getCell(first,['Required Date'])), lines:[], sourceKeys:[], sourceImport:'Foreign purchase.xlsx' };
+      newPOs++;
+    }
+    po.lines = (po.lines || []).concat(g.lines);
+    po.sourceKeys = Array.from(new Set((po.sourceKeys || []).concat(g.sourceKeys)));
+    po.orderNumber = g.orderNumber;
+    po.sourceImport = po.sourceImport || 'Foreign purchase.xlsx';
+    po.sourceRows = (po.sourceRows || []).concat(g.rows.map(x => ({
+      purchaseFor:cleanText(getCell(x,['Purchase For'])), createdBy:cleanText(getCell(x,['Created By'])),
+      sourceStatus:cleanText(getCell(x,['Status'])), piNumber:cleanText(getCell(x,['PI number','PI No'])),
+      lcNumber:cleanText(getCell(x,['LC number','LC No'])), portOfLoading:cleanText(getCell(x,['Port of loading'])),
+      totalPIValue:getCell(x,['Total PI Value']) === '' ? '' : Number(getCell(x,['Total PI Value'])),
+      remarks:cleanText(getCell(x,['Remarks']))
+    })));
+    writes.push({k:'pos',r:po});
+    const alreadyHasShipment = state.shipments.some(s => s.poId === po.id);
+    const shipmentRow = g.rows.find(x => ['ETD','ETA','Freight Company','Shipping Method','Receive Date','Port Delivery Date'].some(k => cleanText(getCell(x,[k])) !== '')) || g.first;
+    const first = shipmentRow;
+    const hasShipData = ['ETD','ETA','Freight Company','Shipping Method','Receive Date','Port Delivery Date'].some(k => cleanText(getCell(first,[k])) !== '');
+    if (!alreadyHasShipment && hasShipData) {
+      const modeText = norm(getCell(first,['Shipping Method']));
+      const shipMode = modeText.includes('air') ? 'Air' : modeText.includes('road') ? 'Road' : modeText.includes('rail') ? 'Rail' : 'Sea';
+      const received = dateText(getCell(first,['Receive Date']));
+      const etd = dateText(getCell(first,['ETD']));
+      const eta = dateText(getCell(first,['ETA']));
+      const portDelivery = dateText(getCell(first,['Port Delivery Date']));
+      const statusText = norm(getCell(first,['Status']));
+      const shipStatus = received ? 'Received' : portDelivery ? 'At customs' : (etd || statusText.includes('ship')) ? 'In transit' : 'Booked';
+      const ship = { id:makeImportId('shipments',counters), poId:po.id, mode:shipMode,
+        forwarder:cleanText(getCell(first,['Freight Company'])), bl:'', etd, eta, status:shipStatus,
+        costs:[], receipt:{date:received,by:cleanText(getCell(first,['Received Factory'])),qty:'',rejected:'',note:cleanText(getCell(first,['Remarks']))},
+        sourceKeys:g.sourceKeys, sourceOrderNumber:g.orderNumber, sourceImport:'Foreign purchase.xlsx' };
+      writes.push({k:'shipments',r:ship}); newShipments++;
+    }
+  }
+  const stats = { total:allRows.length, valid, newRows, skipped, invalid, priceMissing, newSuppliers:newSuppliers.length, newItems:newItems.length, newPOs, addedLines, newShipments };
+  return { writes, stats, errors, filename:file.name };
+}
+async function previewImport() {
+  const file = $('#excelFile')?.files?.[0];
+  if (!file) { importMessage='Please select an Excel workbook first.'; render(); return; }
+  importMessage='Reading and validating workbook…'; render();
+  try { pendingImport = await buildImportPreview(file); importMessage='Preview ready. No database changes have been made.'; }
+  catch (e) { pendingImport=null; importMessage=e.message || 'Could not read this workbook.'; }
+  render();
+}
+async function commitImport() {
+  if (!pendingImport || !pendingImport.writes.length) return;
+  const btn = document.querySelector('[data-act="commitImport"]');
+  if (btn) btn.disabled = true;
+  importMessage='Importing records into the shared database…'; render();
+  try {
+    const writes = pendingImport.writes;
+    for (let i=0; i<writes.length; i+=400) {
+      const batch = db.batch();
+      writes.slice(i,i+400).forEach(({k,r}) => batch.set(db.collection(k).doc(r.id),r));
+      await batch.commit();
+    }
+    const count = writes.length;
+    pendingImport=null;
+    importMessage=`Import completed. ${count} database records were saved.`;
+  } catch (e) {
+    importMessage='Import stopped: ' + (e.message || 'Firestore could not save the records. Check your security rules and connection.');
+  }
+  render();
 }
 
 /* ---------- forms ---------- */
